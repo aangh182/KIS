@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(which:*)",
+      "Shell(ffprobe:*)",
+      "Shell(uv:*)",
+      "Shell(.venv/bin/python:*)",
+      "Shell(cd:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}
