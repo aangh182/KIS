@@ -1,0 +1,16 @@
+# Taste
+- Writes in Vietnamese and expects the deliverable (docs, plans) written in Vietnamese too. Confidence: 0.8
+- Requests self-describe as a newcomer to the topic ("tôi cũng mới tìm hiểu") and ask for detailed, from-scratch explanations of the basic concepts before advanced designs. Confidence: 0.6
+- Wants explicit comparisons (baseline pipeline vs. reference pipelines, component by component) rather than a single recommended design, but still expects a clearly labeled recommended option ("đề xuất giải pháp cho tôi") when asking for a plan. Confidence: 0.6
+- Before planning, expects the agent to read the docs already in the repo and build the plan on top of them (and to call out where the new plan contradicts existing docs/schema) instead of planning from scratch. Confidence: 0.6
+- Prefers deliverables as Markdown docs placed in the repo's existing `docs/` folder (e.g. `docs/Plan-*.md`) instead of long chat answers. Confidence: 0.6
+- Expects external research before planning: asks the agent to find and read reference GitHub repos on the topic and base recommendations on them. Confidence: 0.6
+- Works in a `Documents\GitHub\<project>` Windows repo layout with docs, src, index, and dataset folders kept separate. Confidence: 0.5
+- Prefers a plan-first workflow: expects plan mode, key open decisions surfaced as structured multiple-choice questions (scope, infrastructure, strategy, deliverable format), explicit plan approval, and only then implementation ("làm theo plan ... đi"). Confidence: 0.7
+- Prefers CPU-only compute even for heavy offline batch workloads (chose it over a recommended rented-GPU option); expects plans to budget CPU-hours/disk explicitly and offer load-reduction fallbacks when the budget doesn't fit. Confidence: 0.7
+- When scoping a plan, expects cost estimates computed for the full target dataset (with a small dev slice used for iteration and throughput calibration), not just for the data currently on disk. Confidence: 0.6
+- Prefers design choices settled by measurement rather than intuition: quantified acceptance gates per milestone (coverage/max-gap/recall thresholds, p95 latency) and ablation tables comparing candidate profiles. Confidence: 0.6
+- Prefers a local, file-based stack as the single source of truth — SQLite + manifest.json with checksums and a FAISS flat index — over external DB services (Milvus/Qdrant/Elasticsearch). Confidence: 0.6
+- For video pipelines, expects hard correctness rules enforced by automated verification: timestamps derived from demuxer PTS only (never frame_idx/fps — VFR hazard) with a zero-error ffprobe cross-check, plus index/metadata consistency asserts at startup. Confidence: 0.5
+- Runs on Windows with PowerShell; shell commands must use PowerShell syntax (Copy-Item, $env:USERPROFILE), not bash. Confidence: 0.6
+- Uses uv for Python environment management (uv venv --python, uv sync with optional-dependency groups, uv run). Confidence: 0.5
