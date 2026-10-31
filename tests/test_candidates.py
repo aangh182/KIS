@@ -14,6 +14,8 @@ CFG = {
     "min_shot_s": 0.4,
     "long_shot_s": 10.0,
     "min_gap_ms": 800,
+    # Isolate the hybrid semantic picks from the global safety grid.
+    "safety_grid_s": 0.0,
 }
 
 
@@ -63,7 +65,7 @@ class SelectionTest(unittest.TestCase):
         )
         self.assertFalse(degraded)
         times = [p["target_ms"] for p in picks]
-        self.assertIn(0, times)
+        self.assertIn(200, times)
         self.assertIn(3000, times)
         self.assertIn(6000, times)
         self.assertIn(8300, times)

@@ -1,2 +1,6 @@
 Dataset/
 index/
+/eval/
+.tools/
+__pycache__/
+*.py[cod]

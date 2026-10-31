@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from kis import db
 from kis.config import Settings, sampling_config
+from kis.eval import ablation as ablation_mod
 from kis.eval import coverage as coverage_mod
 from kis.ingest.extract import process_video
 from kis.ingest.probe import run_probe
@@ -219,6 +220,38 @@ def cmd_eval_coverage(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
+def cmd_eval_ablation(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    conn = db.connect(settings.db_path)
+    db.migrate(conn)
+    cfg = sampling_config(settings)
+    summary = ablation_mod.compute_ablation(
+        conn,
+        ffprobe=settings.ffprobe,
+        ffmpeg=settings.ffmpeg,
+        cfg=cfg,
+        radius_ms=args.radius,
+        limit=args.limit,
+    )
+    conn.close()
+
+    report = ablation_mod.render_report(summary)
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report, encoding="utf-8")
+        print(f"wrote {report_path}")
+    for profile in ablation_mod.PROFILES:
+        row = summary[profile]
+        print(
+            f"{profile}: candidates={row['n_candidates']} "
+            f"coverage={row['coverage_1s']:.4f} "
+            f"max_gap p99={row['max_gap_p99']} ms degraded={row['degraded']} "
+            f"gate={'PASS' if ablation_mod.gate_passes(row) else 'FAIL'}"
+        )
+    return 0
+
+
 def cmd_verify_timestamps(args: argparse.Namespace) -> int:
     settings = _settings(args)
     conn = db.connect(settings.db_path)
@@ -272,6 +305,12 @@ def build_parser() -> argparse.ArgumentParser:
     cov.add_argument("--report", default="eval/coverage.md")
     cov.add_argument("--radius", type=int, default=1000, help="coverage radius in ms")
     cov.set_defaults(func=cmd_eval_coverage)
+
+    abl = eval_sub.add_parser("ablation", help="compare candidate profiles V0-V3")
+    abl.add_argument("--report", default="eval/ablation.md")
+    abl.add_argument("--radius", type=int, default=1000, help="coverage radius in ms")
+    abl.add_argument("--limit", type=int, help="evaluate at most N videos")
+    abl.set_defaults(func=cmd_eval_ablation)
 
     debug = sub.add_parser("debug", help="diagnostics")
     debug_sub = debug.add_subparsers(dest="debug_command", required=True)
