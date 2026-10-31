@@ -40,6 +40,21 @@ class Settings(BaseSettings):
     shots_backend: str = "auto"
     scene_threshold: float = 0.30
 
+    embed_model: str = "google/siglip2-base-patch16-384"
+    embed_batch: int = 32
+    embed_dtype: str = "float16"
+    # SigLIP-2 text tower expects caption-like text; the prompt template is
+    # applied at query time only (image shards are unaffected).
+    embed_text_template: str = "This is a photo of {}."
+    # SigLIP-2's multilingual text tower is weak on Vietnamese in practice.
+    # An optional VI->EN MarianMT layer is available but off by default until
+    # measured on a real query set (enable with KIS_TRANSLATE_QUERY=1).
+    translate_query: bool = False
+    translate_model: str = "Helsinki-NLP/opus-mt-vi-en"
+    search_topk: int = 20
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
+
     @property
     def db_path(self) -> Path:
         return self.index_dir / "meta.db"
@@ -51,6 +66,18 @@ class Settings(BaseSettings):
     @property
     def thumbnails_dir(self) -> Path:
         return self.index_dir / "thumbnails"
+
+    @property
+    def embeddings_dir(self) -> Path:
+        return self.index_dir / "embeddings"
+
+    @property
+    def faiss_path(self) -> Path:
+        return self.index_dir / "faiss.index"
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.index_dir / "manifest.json"
 
 
 def sampling_config(settings: Settings) -> dict:

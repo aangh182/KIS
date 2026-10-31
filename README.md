@@ -8,20 +8,22 @@ README này ghi lại **những gì đã làm**, cách chạy, số liệu đo �
 
 ## 1. Phạm vi đã triển khai
 
-Trọng tâm hiện tại là **M0-A: indexing keyframe**:
+Trọng tâm hiện tại là **M0-A/M0-B: keyframe + visual retrieval**:
 
 ```
 probe → shots → candidates → extract → dedup → SQLite + JPEG/thumbnail
                                       ↓
                          coverage gate + timestamp verification
+                                      ↓
+              embed (SigLIP-2) → FAISS → search CLI + web UI
 ```
 
-Chưa triển khai (theo plan, thuộc M0-B/M1/M2):
+Chưa triển khai (theo plan, thuộc M1/M2):
 
-- Embedding SigLIP-2 + FAISS + `kis search`.
+- Embed full 20 video đang chạy nền (2/20 xong); index hiện là partial.
 - OCR (RapidOCR), ASR (faster-whisper), FTS5.
 - Gemini query structuring, RRF, temporal aggregation, rerank.
-- FastAPI UI và DRES submit/mock.
+- DRES submit/mock, timer/EV, pin tray; UI hiện mới có search/grid/detail/video.
 - Eval `queries.jsonl` và recall@20. Ablation V0–V3 hiện mới đo temporal coverage,
   chưa đo retrieval quality.
 
@@ -42,10 +44,13 @@ Chưa triển khai (theo plan, thuộc M0-B/M1/M2):
 | `kis eval coverage` | ✅ Đã cài; 20 video **PASS** (coverage 0.9672, p99 2.700 ms) |
 | `kis eval ablation` | ✅ Mới thêm; so sánh V0–V3 candidate-level |
 | `kis debug verify-timestamps` | ✅ 100/100 khớp tuyệt đối |
-| Unit test | ✅ 15/15 pass (đã sửa test hybrid cũ theo safety grid) |
-| Embed / FAISS / search | ❌ Chưa làm |
+| Unit test | ✅ 27/27 pass |
+| `kis embed` (SigLIP-2) | 🟡 Code xong; đang embed 20 video (**2/20 xong**, 1.428 vector) |
+| `kis index build` (FAISS) | 🟡 Partial index 2 video; full index chạy sau khi embed xong |
+| `kis search` | ✅ CLI + latency + JSON; chất lượng xem §8.3 |
+| `kis serve` (web UI) | ✅ Search/grid/detail/video, đã test API + Range |
 | OCR / ASR / FTS | ❌ Chưa làm |
-| UI / DRES | ❌ Chưa làm |
+| DRES / timer / pin tray | ❌ Chưa làm |
 
 ---
 
@@ -54,9 +59,9 @@ Chưa triển khai (theo plan, thuộc M0-B/M1/M2):
 ```
 src/kis/
   __init__.py            entrypoint main()
-  cli.py                 argparse CLI: probe|shots|keyframes|eval|debug
+  cli.py                 argparse CLI: probe|shots|keyframes|embed|index|search|serve|eval|debug
   config.py              pydantic-settings (env prefix KIS_)
-  db.py                  SQLite connect/migrate/upsert/replace
+  db.py                  SQLite connect/migrate/upsert + truy vấn keyframe/embedding
   verify.py              đối chiếu t_ms với ffprobe
   ingest/
     probe.py             ffprobe → bảng videos
@@ -64,6 +69,15 @@ src/kis/
     candidates.py        I-frame pool, grid, policy H§3.3 (V0–V3)
     extract.py           PyAV decode đúng PTS, JPEG/thumbnail, pHash, ghi DB
     dedup.py             pHash 64-bit + Hamming
+    embed.py             SigLIP-2 image tower → .npy fp16 + sidecar JSON
+  index/
+    build.py             shard → FAISS IndexIDMap2(FlatIP) + manifest
+    store.py             load/validate index, search id → keyframe_pk
+  search/
+    engine.py            SigLIP-2 text tower (+ dịch VI→EN tuỳ chọn) → FAISS → SQLite
+  web/
+    app.py               FastAPI: /api/search, /api/health, /api/video (Range)
+    static/index.html    UI 1 trang: grid, detail, video, phím tắt
   eval/
     coverage.py          temporal coverage, max_gap, gate, report Markdown
     ablation.py          so sánh candidate V0–V3 (không decode)
@@ -71,6 +85,9 @@ tests/
   test_candidates.py     policy chọn frame + profile alias
   test_dedup.py          pHash signed 64-bit + Hamming
   test_coverage.py       coverage/max_gap/gate
+  test_embedding.py      shard ghi/validate/checksum
+  test_index_store.py    build FAISS + id-map + assert toàn vẹn
+  test_search_engine.py  format timestamp/kết quả + nhận diện tiếng Việt
 ```
 
 Artifact runtime (đã gitignore):
@@ -134,14 +151,37 @@ uv run kis eval coverage --report eval/coverage.md
 # 5. Ablation profile V0–V3 (candidate-level, không decode)
 uv run kis eval ablation --report eval/ablation.md
 
-# 6. Unit test
+# 6. Embed keyframe bằng SigLIP-2 (resume; --force để làm lại)
+uv run kis embed --batch 16
+#    --limit N / --video-id ID để chạy thử; --model để đổi model
+
+# 7. Build FAISS + manifest (--allow-partial khi chưa embed đủ video)
+uv run kis index build
+
+# 8. Search CLI
+uv run kis search "a woman in a white shirt" --k 20
+uv run kis search "..." --k 20 --json
+
+# 9. Web UI
+uv run kis serve --port 8000
+#    mở http://127.0.0.1:8000
+
+# 10. Unit test
 uv run python -m unittest discover -s tests -v
+```
+
+Cài dependency cho embed/UI:
+
+```bash
+uv sync --extra offline --extra embed --extra web
 ```
 
 Có thể override bằng biến môi trường, ví dụ:
 
 ```bash
 KIS_INDEX_DIR=index KIS_GRID_S=3 KIS_SAFETY_GRID_S=2 KIS_DEGRADE_ON_LONG_SHOT=0 ...
+KIS_EMBED_MODEL=google/siglip2-base-patch16-384 KIS_EMBED_BATCH=16 ...
+KIS_EMBED_TEXT_TEMPLATE="This is a photo of {}." KIS_TRANSLATE_QUERY=1 ...
 ```
 
 ---
@@ -273,6 +313,31 @@ tăng coverage thêm 0.028 nhưng tốn thêm 12% keyframe; tăng lên 2.5 là *
 cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đương khoảng
 **255k keyframe** và **8,3 GB** artifact.
 
+### 8.3. Embed / FAISS / search / UI
+
+Đo trên CPU **Xeon E5-2690 (12 luồng, không AVX2)**, model
+`google/siglip2-base-patch16-384`:
+
+- Throughput embed thực tế: **~1,4–1,5 ảnh/s** với batch 16. Batch 32/64 chậm hơn;
+  bf16 chậm hơn nhiều; dynamic int8 **crash `Illegal instruction`** vì CPU thiếu AVX2.
+- 2 video đầu: **1.428 vector / 768-d fp16**; FAISS `IndexIDMap2(FlatIP)` 4,4 MB;
+  shard ~1,1 MB/video.
+- Search trên partial index (CPU rảnh): encode **~65–75 ms**, FAISS **~2–20 ms**,
+  tổng **<100 ms**. Khi embed chạy nền, latency tăng do tranh CPU.
+- API UI đã test: `/api/health`, `/api/search`, `/media/*`, `/api/video/...`;
+  video trả **HTTP 206 Partial Content** đúng Range nên tua được.
+- Chất lượng visual (partial, 2 video): caption ngắn tiếng Anh hoạt động —
+  `a black suitcase` → vali, `red and white logo` → graphic HTV9,
+  `a woman in a white shirt` → MC áo trắng. Query tiếng Việt thô yếu hơn.
+  Đã thêm lớp dịch VI→EN tuỳ chọn (`KIS_TRANSLATE_QUERY=1`, MarianMT,
+  +0,6–1 s/query) nhưng **mặc định tắt** vì chưa chứng minh cải thiện top-1.
+- Mean-centering embedding không giúp giảm hubness trên mẫu này; giữ cosine thô.
+- Full embed 20 video đang chạy nền; khi xong chỉ cần `kis index build`,
+  không phải embed lại.
+
+> Chất lượng trên 2 video chỉ là smoke test. Cần `eval/queries.jsonl` + recall@20
+> ở bước sau mới kết luận được; các kênh OCR/ASR/RRF dự kiến sẽ bù điểm yếu visual.
+
 ---
 
 ## 9. Sai lệch / điều chỉnh so với plan
@@ -299,6 +364,17 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
    của index thật (0.9671 vs 0.9672). Không thay schema.
 9. **Dùng ffmpeg static build** trong `.tools/` và override `KIS_FFMPEG` / `KIS_FFPROBE`
    vì máy test không có `ffmpeg`/`ffprobe` trong PATH. PyAV vẫn là đường decode chính.
+10. **`IndexIDMap2(FlatIP)` thay vì "vị trí = keyframe_pk"** của docs §4. `keyframe_pk`
+    không liên tục sau `--force`/reindex một phần, nên id tường minh an toàn hơn;
+    vẫn là exact search.
+11. **`.npy` shard theo video** thay vì theo pack, để resume/rebuild đúng video và
+    khớp layout `keyframes/<pack>/<video_id>/`.
+12. **Prompt template `This is a photo of {}.`** khi encode text. SigLIP-2 được huấn
+    luyện với caption; template chỉ áp dụng lúc query, không đổi image shard.
+13. **Lớp dịch VI→EN tuỳ chọn, mặc định tắt** (`KIS_TRANSLATE_QUERY=1`). Đo trên mẫu
+    nhỏ thấy dịch chưa cải thiện top-1 rõ rệt và tốn thêm 0,6–1 s/query, nên để opt-in.
+14. **torch CPU wheel qua `[tool.uv.index]`** để tránh tải CUDA ~2,5 GB; thêm
+    `sentencepiece` cho MarianMT.
 
 ---
 
@@ -308,16 +384,30 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
 2. ✅ Chạy `kis debug verify-timestamps --sample 100` trên index mới — 100/100 exact.
 3. ✅ Chạy `kis eval coverage` trên 20 video — PASS.
 4. ✅ Chạy ablation V0–V3 — đã có `kis eval ablation`.
-5. Chạy full `Dataset/batch2` (363 video) rồi mở rộng ra toàn bộ pack.
-6. Sang M0-B: embedding SigLIP-2 → FAISS, `kis search`, eval queries, rồi M1 (OCR/ASR/UI).
+5. ✅ Code embed / FAISS / search CLI / web UI — đã chạy được với partial index.
+6. 🟡 Đang embed đủ 20 video (2/20 xong); sau khi xong chạy `kis index build` (strict)
+   để có 14.061 vector.
+7. Tạo `eval/queries.jsonl` + recall@20/MRR để kết luận chất lượng visual và tune
+   template/translation bằng số đo.
+8. OCR (RapidOCR) + ASR (faster-whisper) + FTS5, weighted RRF, temporal aggregation.
+9. Chạy full `Dataset/batch2` (363 video) rồi mở rộng ra toàn bộ pack; cân nhắc HNSW
+   nếu p95 vượt ngân sách.
+10. DRES client + mock, timer/EV, pin tray cho M1.
 
 ---
 
 ## 11. Ghi chú vận hành
 
-- Máy test hiện tại **12 core**: dùng `--workers 8`; đặt `OMP_NUM_THREADS=1` và
-  `OPENCV_NUM_THREADS=1` để tránh oversubscribe khi chạy pool.
+- Máy test hiện tại **12 core Xeon E5-2690 (không AVX2)**: dùng `--workers 8` cho
+  shot extraction; đặt `OMP_NUM_THREADS=1` / `OPENCV_NUM_THREADS=1` khi chạy pool.
+- Embed SigLIP-2 base-384 trên CPU này đạt **~1,4–1,5 ảnh/s**; full 14k keyframe là
+  job dài, nên chạy nền và resume (shard đã ghi sẽ được bỏ qua).
 - `Dataset/batch2` chứa **363 video, 46 GB**; index test 20 video nằm ở `index/`.
-- `.tools/` chứa ffmpeg/ffprobe static và đã nằm trong `.gitignore` cùng `Dataset/`, `index/`.
+- `.tools/` chứa ffmpeg/ffprobe static; `.tools/`, `Dataset/`, `index/`, `eval/`
+  đều nằm trong `.gitignore`.
+- Artifact vector: `index/embeddings/<pack>/<video_id>.{npy,json}`, `index/faiss.index`,
+  `index/manifest.json`; tất cả nằm dưới `index/` nên đã gitignore.
 - SQLite dùng WAL + `busy_timeout=60 s`; mỗi worker mở connection riêng.
-- `kis keyframes` mặc định **resume**: video đã có keyframe sẽ bỏ qua; dùng `--force` để làm lại.
+- `kis keyframes` và `kis embed` mặc định **resume**: dữ liệu đã có sẽ bỏ qua;
+  dùng `--force` để làm lại.
+- `kis serve` mặc định bind `127.0.0.1`; UI cần index đã build (partial cũng chạy được).

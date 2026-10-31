@@ -252,6 +252,113 @@ def cmd_eval_ablation(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_embed(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    if args.model:
+        settings.embed_model = args.model
+    batch = args.batch if args.batch is not None else settings.embed_batch
+
+    from kis.ingest.embed import run_embed
+
+    result = run_embed(
+        settings.db_path,
+        settings.index_dir,
+        settings.embeddings_dir,
+        model_id=settings.embed_model,
+        batch_size=batch,
+        dtype=settings.embed_dtype,
+        limit=args.limit,
+        video_id=args.video_id,
+        force=args.force,
+    )
+    print(
+        f"embed: {result['images']} images from {result['videos']} videos "
+        f"in {result['seconds']:.1f}s ({result.get('img_per_s', 0.0):.1f} img/s), "
+        f"dim {result['dim']}, skipped {result['skipped']}"
+    )
+    return 0
+
+
+def cmd_index_build(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+
+    from kis.index.build import build_index
+
+    sampling = {
+        "profile": "hybrid",
+        "grid_s": settings.grid_s,
+        "max_per_shot": settings.max_per_shot,
+        "safety_grid_s": settings.safety_grid_s,
+    }
+    result = build_index(
+        settings.db_path,
+        settings.embeddings_dir,
+        settings.faiss_path,
+        settings.manifest_path,
+        model_id=settings.embed_model,
+        sampling=sampling,
+        allow_partial=args.allow_partial,
+    )
+    print(
+        f"index build: {result['ntotal']} vectors, dim {result['dim']}, "
+        f"{result['videos']} videos, db keyframes {result['keyframes_db']}, "
+        f"partial {result['partial']}, faiss {result['faiss_bytes'] / 1e6:.1f} MB"
+    )
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    query = " ".join(args.query).strip()
+
+    from kis.search.engine import SearchEngine
+
+    engine = SearchEngine(
+        settings.db_path,
+        settings.faiss_path,
+        settings.manifest_path,
+        settings.embed_model,
+        settings.embed_text_template,
+        translate_query=settings.translate_query,
+        translate_model=settings.translate_model,
+    )
+    result = engine.search(query, args.k or settings.search_topk)
+
+    if args.json:
+        import json
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    translated = f"  (dịch: {result['translated_query']!r})" if result.get("translated_query") else ""
+    print(
+        f"query: {result['query']!r}{translated}  results: {len(result['results'])}  "
+        f"dịch {result['translate_ms']} ms  encode {result['encode_ms']} ms  "
+        f"faiss {result['search_ms']} ms  total {result['latency_ms']} ms"
+    )
+    print(f"{'#':>3}  {'score':>8}  {'video':<12}  {'time':>12}  {'kf':>5}  {'pk':>8}")
+    for rank, item in enumerate(result["results"], 1):
+        print(
+            f"{rank:>3}  {item['score']:>8.4f}  {item['video_id']:<12}  "
+            f"{item['t_label']:>12}  {item['kf_n']:>5}  {item['keyframe_pk']:>8}"
+        )
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from kis.web.app import create_app
+
+    settings = _settings(args)
+    host = args.host or settings.web_host
+    port = args.port or settings.web_port
+    app = create_app(settings)
+    print(f"serving http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+    return 0
+
+
 def cmd_verify_timestamps(args: argparse.Namespace) -> int:
     settings = _settings(args)
     conn = db.connect(settings.db_path)
@@ -298,6 +405,33 @@ def build_parser() -> argparse.ArgumentParser:
     keyframes.add_argument("--limit", type=int, help="process at most N videos")
     keyframes.add_argument("--force", action="store_true", help="reprocess existing videos")
     keyframes.set_defaults(func=cmd_keyframes)
+
+    embed = sub.add_parser("embed", help="embed keyframes with SigLIP-2")
+    embed.add_argument("--model", help="override the embedding model id")
+    embed.add_argument("--batch", type=int, help="images per forward pass")
+    embed.add_argument("--limit", type=int, help="process at most N videos")
+    embed.add_argument("--video-id", help="embed a single video")
+    embed.add_argument("--force", action="store_true", help="re-embed existing shards")
+    embed.set_defaults(func=cmd_embed)
+
+    index_parser = sub.add_parser("index", help="build/validate the vector index")
+    index_sub = index_parser.add_subparsers(dest="index_command", required=True)
+    index_build = index_sub.add_parser("build", help="build FAISS from embedding shards")
+    index_build.add_argument(
+        "--allow-partial", action="store_true", help="build from whatever shards exist"
+    )
+    index_build.set_defaults(func=cmd_index_build)
+
+    search = sub.add_parser("search", help="text search over keyframes")
+    search.add_argument("query", nargs="+")
+    search.add_argument("--k", type=int, help="number of results")
+    search.add_argument("--json", action="store_true", help="print JSON")
+    search.set_defaults(func=cmd_search)
+
+    serve = sub.add_parser("serve", help="run the web UI")
+    serve.add_argument("--host")
+    serve.add_argument("--port", type=int)
+    serve.set_defaults(func=cmd_serve)
 
     eval_parser = sub.add_parser("eval", help="evaluation gates")
     eval_sub = eval_parser.add_subparsers(dest="eval_command", required=True)

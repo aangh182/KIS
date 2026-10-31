@@ -5,7 +5,9 @@
       "Shell(ffprobe:*)",
       "Shell(uv:*)",
       "Shell(.venv/bin/python:*)",
-      "Shell(cd:*)"
+      "Shell(cd:*)",
+      "Shell(ffmpeg:*)",
+      "Shell(nproc:*)"
     ],
     "deny": [],
     "defaultMode": "default"

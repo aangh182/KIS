@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KIS — Visual keyframe search</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e7e9ee;
+    --muted: #9aa3b2;
+    --accent: #4da3ff;
+    --good: #3ddc97;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(15, 17, 21, .92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+  }
+  .bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 16px 0 0;
+    white-space: nowrap;
+  }
+  h1 span { color: var(--accent); }
+  input[type="search"] {
+    flex: 1;
+    min-width: 120px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+  }
+  input[type="search"]:focus { border-color: var(--accent); }
+  select, button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #06101f;
+    font-weight: 600;
+  }
+  button:disabled { opacity: .55; cursor: wait; }
+  .meta {
+    max-width: 1400px;
+    margin: 8px auto 0;
+    color: var(--muted);
+    font-size: 12px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .pill {
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    padding: 1px 8px;
+  }
+  .pill.good { color: var(--good); border-color: #245c46; }
+  main { max-width: 1400px; margin: 0 auto; padding: 18px 20px 60px; }
+  .status { color: var(--muted); font-size: 13px; min-height: 20px; margin-bottom: 12px; }
+  .status.error { color: #ff7b7b; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .12s, transform .12s;
+  }
+  .card:hover, .card.selected {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #000;
+  }
+  .card .info { padding: 8px 10px 10px; }
+  .card .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .card .vid { font-weight: 600; }
+  .card .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .card .score { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .card .kf { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 6, 10, .82);
+    display: none;
+    z-index: 50;
+    padding: 24px;
+    overflow: auto;
+  }
+  .overlay.open { display: block; }
+  .detail {
+    max-width: 1080px;
+    margin: 0 auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 0;
+  }
+  .detail img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    background: #000;
+  }
+  .detail .side { padding: 16px; border-left: 1px solid var(--border); }
+  .detail h2 { margin: 0 0 10px; font-size: 16px; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .actions a, .actions button {
+    text-decoration: none;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .actions a:hover, .actions button:hover { border-color: var(--accent); }
+  video { width: 100%; margin-top: 14px; border-radius: 8px; background: #000; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  @media (max-width: 760px) {
+    .detail-grid { grid-template-columns: 1fr; }
+    .detail .side { border-left: 0; border-top: 1px solid var(--border); }
+    h1 { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <form class="bar" id="searchForm">
+    <h1>KIS <span>visual search</span></h1>
+    <input id="q" type="search" placeholder="Mô tả tiếng Việt hoặc tiếng Anh… (phím /)" autocomplete="off">
+    <select id="k" title="Số kết quả">
+      <option value="10">top 10</option>
+      <option value="20" selected>top 20</option>
+      <option value="50">top 50</option>
+    </select>
+    <button class="primary" id="go" type="submit">Tìm</button>
+  </form>
+  <div class="meta" id="health">
+    <span class="pill">đang tải index…</span>
+  </div>
+</header>
+<main>
+  <div class="status" id="status"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden>Chưa có kết quả. Nhập mô tả và bấm Tìm.</div>
+</main>
+
+<div class="overlay" id="overlay">
+  <div class="detail">
+    <div class="detail-grid">
+      <img id="detailImg" alt="keyframe">
+      <div class="side">
+        <h2 id="detailTitle">keyframe</h2>
+        <dl class="kv" id="detailKv"></dl>
+        <div class="actions">
+          <a id="openVideo" href="#" target="_blank" rel="noopener">Mở video tại mốc này</a>
+          <button id="copyId" type="button">Copy video_id</button>
+          <button id="closeDetail" type="button">Đóng (Esc)</button>
+        </div>
+        <video id="detailVideo" controls playsinline hidden></video>
+        <div class="hint">←/→ chọn kết quả · Enter mở · Esc đóng · / tìm kiếm</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = { results: [], selected: -1 };
+const $ = (id) => document.getElementById(id);
+
+function fmtScore(s) { return Number(s).toFixed(4); }
+
+async function loadHealth() {
+  try {
+    const r = await fetch("/api/health");
+    if (!r.ok) throw new Error(await r.text());
+    const h = await r.json();
+    $("health").innerHTML = [
+      `<span class="pill good">${h.videos} video · ${h.keyframes} keyframe</span>`,
+      `<span class="pill">index ${h.indexed} · ${h.dim}d</span>`,
+      `<span class="pill">${h.model}</span>`,
+      h.partial ? `<span class="pill">partial index</span>` : "",
+    ].join("");
+  } catch (e) {
+    $("health").innerHTML = `<span class="pill">health lỗi: ${e.message}</span>`;
+  }
+}
+
+function setStatus(text, isError = false) {
+  const el = $("status");
+  el.textContent = text;
+  el.className = "status" + (isError ? " error" : "");
+}
+
+function render() {
+  const grid = $("grid");
+  grid.innerHTML = "";
+  $("empty").hidden = state.results.length > 0;
+  state.results.forEach((item, i) => {
+    const card = document.createElement("div");
+    card.className = "card" + (i === state.selected ? " selected" : "");
+    card.dataset.index = i;
+    card.innerHTML = `
+      <img loading="lazy" src="${item.thumb_url || item.image_url}" alt="${item.video_id}">
+      <div class="info">
+        <div class="row"><span class="vid">${item.video_id}</span><span class="score">${fmtScore(item.score)}</span></div>
+        <div class="row"><span class="time">${item.t_label}</span><span class="kf">kf ${item.kf_n}</span></div>
+      </div>`;
+    card.addEventListener("click", () => openDetail(i));
+    grid.appendChild(card);
+  });
+}
+
+function select(index) {
+  if (!state.results.length) return;
+  state.selected = (index + state.results.length) % state.results.length;
+  document.querySelectorAll(".card").forEach((el) => {
+    el.classList.toggle("selected", Number(el.dataset.index) === state.selected);
+  });
+  const el = document.querySelector(`.card[data-index="${state.selected}"]`);
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+function openDetail(i) {
+  const item = state.results[i];
+  if (!item) return;
+  state.selected = i;
+  $("detailImg").src = item.image_url || item.thumb_url;
+  $("detailTitle").textContent = `${item.video_id} · ${item.t_label}`;
+  const shot = item.shot
+    ? `${item.shot.t_start_ms}–${item.shot.t_end_ms} ms`
+    : "—";
+  $("detailKv").innerHTML = `
+    <dt>Score</dt><dd>${fmtScore(item.score)}</dd>
+    <dt>Video</dt><dd>${item.video_id}</dd>
+    <dt>Thời điểm</dt><dd>${item.t_label} (${item.t_ms} ms)</dd>
+    <dt>Keyframe</dt><dd>kf_n ${item.kf_n} · pk ${item.keyframe_pk}</dd>
+    <dt>Shot</dt><dd>${shot}</dd>`;
+  $("openVideo").href = item.video_url;
+  const video = $("detailVideo");
+  video.hidden = false;
+  video.src = item.video_url;
+  $("copyId").onclick = () => navigator.clipboard?.writeText(item.video_id);
+  $("overlay").classList.add("open");
+  select(i);
+}
+
+function closeDetail() {
+  const video = $("detailVideo");
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  video.hidden = true;
+  $("overlay").classList.remove("open");
+}
+
+async function search(event) {
+  event.preventDefault();
+  const q = $("q").value.trim();
+  const k = Number($("k").value);
+  if (!q) { setStatus("Nhập mô tả trước đã."); return; }
+  $("go").disabled = true;
+  setStatus("Đang tìm…");
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&k=${k}`);
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    state.results = data.results;
+    state.selected = state.results.length ? 0 : -1;
+    render();
+    setStatus(
+      `${data.results.length} kết quả · dịch ${data.translate_ms} ms · encode ${data.encode_ms} ms · faiss ${data.search_ms} ms · tổng ${data.latency_ms} ms` +
+      (data.translated_query ? ` · dịch: “${data.translated_query}”` : "")
+    );
+  } catch (e) {
+    state.results = [];
+    state.selected = -1;
+    render();
+    setStatus(`Lỗi search: ${e.message}`, true);
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+$("searchForm").addEventListener("submit", search);
+$("closeDetail").addEventListener("click", closeDetail);
+$("overlay").addEventListener("click", (e) => { if (e.target === $("overlay")) closeDetail(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $("q")) {
+    e.preventDefault();
+    $("q").focus();
+    return;
+  }
+  if (e.key === "Escape") { closeDetail(); return; }
+  if (!$("overlay").classList.contains("open") && document.activeElement === $("q")) return;
+  if (e.key === "ArrowRight") { e.preventDefault(); select(state.selected + 1); }
+  if (e.key === "ArrowLeft") { e.preventDefault(); select(state.selected - 1); }
+  if (e.key === "Enter" && state.selected >= 0) {
+    e.preventDefault();
+    openDetail(state.selected);
+  }
+});
+
+loadHealth();
+</script>
+</body>
+</html>

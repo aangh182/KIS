@@ -1,6 +1,6 @@
-Dataset/
-index/
+/Dataset/
+/index/
 /eval/
-.tools/
+/.tools/
 __pycache__/
 *.py[cod]

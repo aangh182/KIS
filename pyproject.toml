@@ -22,11 +22,26 @@ offline = [
 ]
 embed = [
     "faiss-cpu>=1.9",
+    "sentencepiece>=0.2",
     "torch>=2.4",
-    "transformers>=4.49",
+    "transformers>=4.50",
+]
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 ocr = ["rapidocr-onnxruntime>=1.4"]
 asr = ["faster-whisper>=1.0"]
+
+[tool.uv]
+# CPU-only torch: avoid pulling the ~2.5 GB CUDA wheel on Linux.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [project.scripts]
 kis = "kis:main"

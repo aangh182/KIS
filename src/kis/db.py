@@ -117,6 +117,41 @@ def count_keyframes(conn: sqlite3.Connection, video_id: str) -> int:
     ).fetchone()[0]
 
 
+def get_keyframes_for_video(conn: sqlite3.Connection, video_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT keyframe_pk, kf_n, image_path FROM keyframes"
+        " WHERE video_id = ? ORDER BY kf_n",
+        (video_id,),
+    )
+    return [dict(r) for r in rows]
+
+
+def get_all_keyframe_pks(conn: sqlite3.Connection) -> list[int]:
+    return [int(r[0]) for r in conn.execute("SELECT keyframe_pk FROM keyframes ORDER BY 1")]
+
+
+def get_keyframes_by_pks(conn: sqlite3.Connection, pks: list[int]) -> dict[int, dict]:
+    if not pks:
+        return {}
+    placeholders = ",".join("?" for _ in pks)
+    rows = conn.execute(
+        f"""
+        SELECT k.keyframe_pk, k.video_id, k.kf_n, k.t_ms, k.shot_id,
+               k.image_path, k.thumb_path, v.duration_ms,
+               s.t_start_ms AS shot_start_ms, s.t_end_ms AS shot_end_ms
+        FROM keyframes k
+        JOIN videos v USING (video_id)
+        LEFT JOIN shots s ON s.video_id = k.video_id AND (
+            s.shot_id = k.shot_id
+            OR (k.shot_id IS NULL AND k.t_ms >= s.t_start_ms AND k.t_ms < s.t_end_ms)
+        )
+        WHERE k.keyframe_pk IN ({placeholders})
+        """,
+        pks,
+    )
+    return {int(r["keyframe_pk"]): dict(r) for r in rows}
+
+
 def replace_shots(conn: sqlite3.Connection, video_id: str, shots: Iterable[dict]) -> None:
     with conn:
         conn.execute("DELETE FROM shots WHERE video_id = ?", (video_id,))
