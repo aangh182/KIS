@@ -14,7 +14,6 @@ from kis import db
 from kis.config import Settings, sampling_config
 from kis.eval import ablation as ablation_mod
 from kis.eval import coverage as coverage_mod
-from kis.ingest.extract import process_video
 from kis.ingest.probe import run_probe
 from kis.ingest.shots import detect_shots
 from kis.verify import verify_timestamps
@@ -108,6 +107,8 @@ def cmd_shots(args: argparse.Namespace) -> int:
 
 
 def cmd_keyframes(args: argparse.Namespace) -> int:
+    from kis.ingest.extract import process_video
+
     settings = _settings(args)
     settings.grid_s = args.grid_s
     if args.max_per_shot is not None:
@@ -256,6 +257,8 @@ def cmd_embed(args: argparse.Namespace) -> int:
     settings = _settings(args)
     if args.model:
         settings.embed_model = args.model
+    if args.device:
+        settings.embed_device = args.device
     batch = args.batch if args.batch is not None else settings.embed_batch
 
     from kis.ingest.embed import run_embed
@@ -267,6 +270,7 @@ def cmd_embed(args: argparse.Namespace) -> int:
         model_id=settings.embed_model,
         batch_size=batch,
         dtype=settings.embed_dtype,
+        device=settings.embed_device,
         limit=args.limit,
         video_id=args.video_id,
         force=args.force,
@@ -274,7 +278,8 @@ def cmd_embed(args: argparse.Namespace) -> int:
     print(
         f"embed: {result['images']} images from {result['videos']} videos "
         f"in {result['seconds']:.1f}s ({result.get('img_per_s', 0.0):.1f} img/s), "
-        f"dim {result['dim']}, skipped {result['skipped']}"
+        f"dim {result['dim']}, device {result.get('device', 'cpu')}, "
+        f"skipped {result['skipped']}"
     )
     return 0
 
@@ -409,6 +414,7 @@ def build_parser() -> argparse.ArgumentParser:
     embed = sub.add_parser("embed", help="embed keyframes with SigLIP-2")
     embed.add_argument("--model", help="override the embedding model id")
     embed.add_argument("--batch", type=int, help="images per forward pass")
+    embed.add_argument("--device", choices=["auto", "cpu", "cuda"], help="auto picks CUDA")
     embed.add_argument("--limit", type=int, help="process at most N videos")
     embed.add_argument("--video-id", help="embed a single video")
     embed.add_argument("--force", action="store_true", help="re-embed existing shards")

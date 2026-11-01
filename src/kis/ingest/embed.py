@@ -51,12 +51,23 @@ def shard_is_valid(
     return meta.get("sha256") == sha256_file(npy_path)
 
 
-def load_model(model_id: str):
+def resolve_device(device: str | None = None) -> str:
+    import torch
+
+    if device and device != "auto":
+        return device
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def load_model(model_id: str, device: str | None = None):
     import torch
     from transformers import AutoModel, AutoProcessor
 
-    torch.set_num_threads(max(1, os.cpu_count() or 1))
+    resolved = resolve_device(device)
+    if resolved == "cpu":
+        torch.set_num_threads(max(1, os.cpu_count() or 1))
     model = AutoModel.from_pretrained(model_id, attn_implementation="sdpa").eval()
+    model = model.to(resolved)
     processor = AutoProcessor.from_pretrained(model_id)
     return model, processor
 
@@ -85,16 +96,22 @@ def embed_rows(
     batch_size: int,
     dtype: str = "float16",
     on_batch=None,
+    device: str | None = None,
 ) -> np.ndarray:
     import torch
     import torch.nn.functional as functional
+
+    resolved = resolve_device(device)
+    use_autocast = resolved.startswith("cuda") and dtype == "float16"
 
     chunks: list[np.ndarray] = []
     for start in range(0, len(rows), batch_size):
         batch = rows[start : start + batch_size]
         images = _load_images(index_dir, batch)
-        inputs = processor(images=images, return_tensors="pt")
-        with torch.inference_mode():
+        inputs = processor(images=images, return_tensors="pt").to(resolved)
+        with torch.inference_mode(), torch.autocast(
+            device_type="cuda", dtype=torch.float16, enabled=use_autocast
+        ):
             features = _feature_tensor(model.get_image_features(**inputs))
         features = functional.normalize(features.float(), p=2, dim=-1)
         array = features.cpu().numpy().astype(np.dtype(dtype))
@@ -149,6 +166,7 @@ def run_embed(
     model_id: str,
     batch_size: int = 32,
     dtype: str = "float16",
+    device: str | None = None,
     limit: int | None = None,
     video_id: str | None = None,
     force: bool = False,
@@ -194,7 +212,8 @@ def run_embed(
                 "dim": 0,
             }
 
-        model, processor = load_model(model_id)
+        resolved = resolve_device(device)
+        model, processor = load_model(model_id, resolved)
         started = time.time()
         images_done = 0
         embedded_videos = 0
@@ -212,6 +231,7 @@ def run_embed(
                     batch_size,
                     dtype,
                     on_batch=bar.update,
+                    device=resolved,
                 )
                 if array.size == 0:
                     continue
@@ -236,6 +256,7 @@ def run_embed(
             "seconds": seconds,
             "img_per_s": (images_done / seconds) if seconds > 0 else 0.0,
             "dim": dim,
+            "device": resolved,
         }
     finally:
         conn.close()

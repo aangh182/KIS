@@ -40,9 +40,11 @@ class Settings(BaseSettings):
     shots_backend: str = "auto"
     scene_threshold: float = 0.30
 
-    embed_model: str = "google/siglip2-base-patch16-384"
+    embed_model: str = "google/siglip2-so400m-patch14-384"
     embed_batch: int = 32
     embed_dtype: str = "float16"
+    # "auto" picks CUDA when available; set "cpu" to force the old path.
+    embed_device: str = "auto"
     # SigLIP-2 text tower expects caption-like text; the prompt template is
     # applied at query time only (image shards are unaffected).
     embed_text_template: str = "This is a photo of {}."

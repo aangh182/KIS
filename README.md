@@ -20,7 +20,6 @@ probe → shots → candidates → extract → dedup → SQLite + JPEG/thumbnail
 
 Chưa triển khai (theo plan, thuộc M1/M2):
 
-- Embed full 20 video đang chạy nền (2/20 xong); index hiện là partial.
 - OCR (RapidOCR), ASR (faster-whisper), FTS5.
 - Gemini query structuring, RRF, temporal aggregation, rerank.
 - DRES submit/mock, timer/EV, pin tray; UI hiện mới có search/grid/detail/video.
@@ -45,8 +44,8 @@ Chưa triển khai (theo plan, thuộc M1/M2):
 | `kis eval ablation` | ✅ Mới thêm; so sánh V0–V3 candidate-level |
 | `kis debug verify-timestamps` | ✅ 100/100 khớp tuyệt đối |
 | Unit test | ✅ 27/27 pass |
-| `kis embed` (SigLIP-2) | 🟡 Code xong; đang embed 20 video (**2/20 xong**, 1.428 vector) |
-| `kis index build` (FAISS) | 🟡 Partial index 2 video; full index chạy sau khi embed xong |
+| `kis embed` (SigLIP-2) | ✅ 363/363 video, **223.199 vector** 1152-d fp16 (chạy trên Kaggle GPU) |
+| `kis index build` (FAISS) | ✅ Full strict: 223.199 vector, `partial=false`, FAISS **1,03 GB** |
 | `kis search` | ✅ CLI + latency + JSON; chất lượng xem §8.3 |
 | `kis serve` (web UI) | ✅ Search/grid/detail/video, đã test API + Range |
 | OCR / ASR / FTS | ❌ Chưa làm |
@@ -180,7 +179,7 @@ Có thể override bằng biến môi trường, ví dụ:
 
 ```bash
 KIS_INDEX_DIR=index KIS_GRID_S=3 KIS_SAFETY_GRID_S=2 KIS_DEGRADE_ON_LONG_SHOT=0 ...
-KIS_EMBED_MODEL=google/siglip2-base-patch16-384 KIS_EMBED_BATCH=16 ...
+KIS_EMBED_MODEL=google/siglip2-so400m-patch14-384 KIS_EMBED_BATCH=16 ...
 KIS_EMBED_TEXT_TEMPLATE="This is a photo of {}." KIS_TRANSLATE_QUERY=1 ...
 ```
 
@@ -318,6 +317,9 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
 Đo trên CPU **Xeon E5-2690 (12 luồng, không AVX2)**, model
 `google/siglip2-base-patch16-384`:
 
+> Mặc định hiện đã chuyển sang `google/siglip2-so400m-patch14-384` (1152-d);
+> các số đo dưới đây là của base-384 và cần đo lại khi đổi model.
+
 - Throughput embed thực tế: **~1,4–1,5 ảnh/s** với batch 16. Batch 32/64 chậm hơn;
   bf16 chậm hơn nhiều; dynamic int8 **crash `Illegal instruction`** vì CPU thiếu AVX2.
 - 2 video đầu: **1.428 vector / 768-d fp16**; FAISS `IndexIDMap2(FlatIP)` 4,4 MB;
@@ -332,11 +334,32 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
   Đã thêm lớp dịch VI→EN tuỳ chọn (`KIS_TRANSLATE_QUERY=1`, MarianMT,
   +0,6–1 s/query) nhưng **mặc định tắt** vì chưa chứng minh cải thiện top-1.
 - Mean-centering embedding không giúp giảm hubness trên mẫu này; giữ cosine thô.
-- Full embed 20 video đang chạy nền; khi xong chỉ cần `kis index build`,
-  không phải embed lại.
 
-> Chất lượng trên 2 video chỉ là smoke test. Cần `eval/queries.jsonl` + recall@20
-> ở bước sau mới kết luận được; các kênh OCR/ASR/RRF dự kiến sẽ bù điểm yếu visual.
+### 8.4. Full batch2 trên Kaggle GPU (SigLIP-2 so400m, 1152-d)
+
+- Embed 363 video / **223.199 keyframe** bằng notebook `notebooks/kaggle_embed.ipynb`
+  (GPU T4, transformers 5.16.1), xuất `embeddings.zip` 493 MB → 363 shard.
+- `kis index build` strict trên local: **223.199/223.199 vector**, `partial=false`,
+  FAISS `IndexIDMap2(FlatIP)` **1,03 GB**, dim 1152.
+- Kiểm chứng chéo: encode lại 6 keyframe ở local (transformers 5.20.2, torch CPU) rồi
+  so với vector Kaggle → cosine **0,99999–1,00000**, nên shard dùng được dù lệch
+  version thư viện.
+- Search trên full index (CPU rảnh): encode **~220–1.235 ms** lần đầu (nạp model),
+  FAISS flat 223k vector **~190 ms**, `/api/search?k=5` tổng **~440 ms**.
+- `/api/health` báo `videos=363, keyframes=223199, indexed=223199, dim=1152, partial=false`.
+
+**Vấn đề đo được — blank frame chiếm top:** frame gần như trơn (độ lệch chuẩn ảnh xám
+≤ 5, ví dụ khung trắng/đen chuyển cảnh) là **hub** trong không gian SigLIP-2.
+Với `a woman in a white shirt`, `HTV9 logo`, `news anchor in studio`:
+**19–20/20 kết quả top-20 là frame trơn**; trong top-100 có **59% frame có std = 0**,
+trong khi 500 frame lấy ngẫu nhiên **không có frame nào std ≤ 10**. Các frame trơn này
+rất hiếm trong index (~0,1%) nhưng gần như luôn thắng xếp hạng, nên kết quả UI nhìn
+như "hỏng". Score cosine thô của SigLIP-2 cũng thấp (0,04–0,09 ở top-1), đây là bản
+chất hàm mất mát sigmoid chứ không phải lỗi chuẩn hoá.
+Cần lọc frame trơn ở bước search (hoặc lúc build index) trước khi đánh giá recall.
+
+> Chất lượng vẫn chưa kết luận được. Cần `eval/queries.jsonl` + recall@20 ở bước sau;
+> các kênh OCR/ASR/RRF dự kiến sẽ bù điểm yếu visual.
 
 ---
 
@@ -385,14 +408,13 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
 3. ✅ Chạy `kis eval coverage` trên 20 video — PASS.
 4. ✅ Chạy ablation V0–V3 — đã có `kis eval ablation`.
 5. ✅ Code embed / FAISS / search CLI / web UI — đã chạy được với partial index.
-6. 🟡 Đang embed đủ 20 video (2/20 xong); sau khi xong chạy `kis index build` (strict)
-   để có 14.061 vector.
-7. Tạo `eval/queries.jsonl` + recall@20/MRR để kết luận chất lượng visual và tune
+6. ✅ Embed đủ 363 video trên Kaggle GPU + `kis index build` (strict) — 223.199 vector.
+7. Lọc blank/smooth frame khỏi xếp hạng (§8.4): hiện 59% top-100 là frame std = 0.
+8. Tạo `eval/queries.jsonl` + recall@20/MRR để kết luận chất lượng visual và tune
    template/translation bằng số đo.
-8. OCR (RapidOCR) + ASR (faster-whisper) + FTS5, weighted RRF, temporal aggregation.
-9. Chạy full `Dataset/batch2` (363 video) rồi mở rộng ra toàn bộ pack; cân nhắc HNSW
-   nếu p95 vượt ngân sách.
-10. DRES client + mock, timer/EV, pin tray cho M1.
+9. OCR (RapidOCR) + ASR (faster-whisper) + FTS5, weighted RRF, temporal aggregation.
+10. Mở rộng ra toàn bộ pack ngoài `batch2`; cân nhắc HNSW nếu p95 vượt ngân sách.
+11. DRES client + mock, timer/EV, pin tray cho M1.
 
 ---
 
@@ -402,7 +424,8 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
   shot extraction; đặt `OMP_NUM_THREADS=1` / `OPENCV_NUM_THREADS=1` khi chạy pool.
 - Embed SigLIP-2 base-384 trên CPU này đạt **~1,4–1,5 ảnh/s**; full 14k keyframe là
   job dài, nên chạy nền và resume (shard đã ghi sẽ được bỏ qua).
-- `Dataset/batch2` chứa **363 video, 46 GB**; index test 20 video nằm ở `index/`.
+- `Dataset/batch2` chứa **363 video, 46 GB**; `index/` hiện index đủ 363 video
+  (keyframes 5,1 GB, thumbnails 2,2 GB, meta.db 46 MB, embeddings 493 MB, FAISS 1,03 GB).
 - `.tools/` chứa ffmpeg/ffprobe static; `.tools/`, `Dataset/`, `index/`, `eval/`
   đều nằm trong `.gitignore`.
 - Artifact vector: `index/embeddings/<pack>/<video_id>.{npy,json}`, `index/faiss.index`,

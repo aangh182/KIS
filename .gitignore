@@ -2,5 +2,7 @@
 /index/
 /eval/
 /.tools/
+/kaggle_upload/
+/notebooks/kaggle_pull/output/
 __pycache__/
 *.py[cod]
