@@ -73,7 +73,7 @@ src/kis/
     build.py             shard → FAISS IndexIDMap2(FlatIP) + manifest
     store.py             load/validate index, search id → keyframe_pk
   search/
-    engine.py            SigLIP-2 text tower (+ dịch VI→EN tuỳ chọn) → FAISS → SQLite
+    engine.py            SigLIP-2 text tower → FAISS → SQLite
   web/
     app.py               FastAPI: /api/search, /api/health, /api/video (Range)
     static/index.html    UI 1 trang: grid, detail, video, phím tắt
@@ -180,7 +180,7 @@ Có thể override bằng biến môi trường, ví dụ:
 ```bash
 KIS_INDEX_DIR=index KIS_GRID_S=3 KIS_SAFETY_GRID_S=2 KIS_DEGRADE_ON_LONG_SHOT=0 ...
 KIS_EMBED_MODEL=google/siglip2-so400m-patch14-384 KIS_EMBED_BATCH=16 ...
-KIS_EMBED_TEXT_TEMPLATE="This is a photo of {}." KIS_TRANSLATE_QUERY=1 ...
+KIS_EMBED_TEXT_TEMPLATE="This is a photo of {}." KIS_SEARCH_BLANK_STD=10 ...
 ```
 
 ---
@@ -330,9 +330,8 @@ cả coverage lẫn p99. Ở mức đo này, 363 video của `batch2` tương đ
   video trả **HTTP 206 Partial Content** đúng Range nên tua được.
 - Chất lượng visual (partial, 2 video): caption ngắn tiếng Anh hoạt động —
   `a black suitcase` → vali, `red and white logo` → graphic HTV9,
-  `a woman in a white shirt` → MC áo trắng. Query tiếng Việt thô yếu hơn.
-  Đã thêm lớp dịch VI→EN tuỳ chọn (`KIS_TRANSLATE_QUERY=1`, MarianMT,
-  +0,6–1 s/query) nhưng **mặc định tắt** vì chưa chứng minh cải thiện top-1.
+  `a woman in a white shirt` → MC áo trắng. Query tiếng Việt được encode trực tiếp
+  bằng text tower của SigLIP-2, không qua lớp dịch.
 - Mean-centering embedding không giúp giảm hubness trên mẫu này; giữ cosine thô.
 
 ### 8.4. Full batch2 trên Kaggle GPU (SigLIP-2 so400m, 1152-d)
@@ -401,10 +400,11 @@ frame lấy ngẫu nhiên, chỉ ~0,1–0,2% rơi vào các ngưỡng này.
     khớp layout `keyframes/<pack>/<video_id>/`.
 12. **Prompt template `This is a photo of {}.`** khi encode text. SigLIP-2 được huấn
     luyện với caption; template chỉ áp dụng lúc query, không đổi image shard.
-13. **Lớp dịch VI→EN tuỳ chọn, mặc định tắt** (`KIS_TRANSLATE_QUERY=1`). Đo trên mẫu
-    nhỏ thấy dịch chưa cải thiện top-1 rõ rệt và tốn thêm 0,6–1 s/query, nên để opt-in.
-14. **torch CPU wheel qua `[tool.uv.index]`** để tránh tải CUDA ~2,5 GB; thêm
-    `sentencepiece` cho MarianMT.
+13. **Bỏ lớp dịch VI→EN.** Search encode thẳng query bằng text tower của SigLIP-2;
+    không còn MarianMT, `looks_vietnamese`, `translate_ms` hay `translated_query`
+    trong engine/API/UI.
+14. **torch CPU wheel qua `[tool.uv.index]`** để tránh tải CUDA ~2,5 GB; giữ
+    `sentencepiece` cho tokenizer SigLIP-2 trong notebook Kaggle.
 
 ---
 

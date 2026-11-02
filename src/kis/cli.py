@@ -324,8 +324,6 @@ def cmd_search(args: argparse.Namespace) -> int:
         settings.manifest_path,
         settings.embed_model,
         settings.embed_text_template,
-        translate_query=settings.translate_query,
-        translate_model=settings.translate_model,
         blank_std=settings.search_blank_std,
         blank_dominant=settings.search_blank_dominant,
         blank_edge=settings.search_blank_edge,
@@ -338,10 +336,9 @@ def cmd_search(args: argparse.Namespace) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
-    translated = f"  (dịch: {result['translated_query']!r})" if result.get("translated_query") else ""
     print(
-        f"query: {result['query']!r}{translated}  results: {len(result['results'])}  "
-        f"dịch {result['translate_ms']} ms  encode {result['encode_ms']} ms  "
+        f"query: {result['query']!r}  results: {len(result['results'])}  "
+        f"encode {result['encode_ms']} ms  "
         f"faiss {result['search_ms']} ms  total {result['latency_ms']} ms"
     )
     print(f"{'#':>3}  {'score':>8}  {'video':<12}  {'time':>12}  {'kf':>5}  {'pk':>8}")

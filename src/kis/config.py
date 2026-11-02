@@ -48,11 +48,6 @@ class Settings(BaseSettings):
     # SigLIP-2 text tower expects caption-like text; the prompt template is
     # applied at query time only (image shards are unaffected).
     embed_text_template: str = "This is a photo of {}."
-    # SigLIP-2's multilingual text tower is weak on Vietnamese in practice.
-    # An optional VI->EN MarianMT layer is available but off by default until
-    # measured on a real query set (enable with KIS_TRANSLATE_QUERY=1).
-    translate_query: bool = False
-    translate_model: str = "Helsinki-NLP/opus-mt-vi-en"
     search_topk: int = 20
     # Nearly uniform frames (black at t=0, white flashes, solid-color wipes,
     # smooth gradients) are hubs in SigLIP-2 space and outrank real content

@@ -11,16 +11,7 @@ from kis.search.engine import (
     drop_blank_hits,
     format_timestamp,
     frame_uniformity,
-    looks_vietnamese,
 )
-
-
-class LanguageTest(unittest.TestCase):
-    def test_detects_vietnamese(self):
-        self.assertTrue(looks_vietnamese("một người dẫn chương trình"))
-        self.assertTrue(looks_vietnamese("nguoi dan chuong trinh"))
-        self.assertFalse(looks_vietnamese("a woman in a white shirt"))
-        self.assertFalse(looks_vietnamese("red and white logo"))
 
 
 class FormatTest(unittest.TestCase):
