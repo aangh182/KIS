@@ -326,6 +326,9 @@ def cmd_search(args: argparse.Namespace) -> int:
         settings.embed_text_template,
         translate_query=settings.translate_query,
         translate_model=settings.translate_model,
+        blank_std=settings.search_blank_std,
+        blank_dominant=settings.search_blank_dominant,
+        blank_edge=settings.search_blank_edge,
     )
     result = engine.search(query, args.k or settings.search_topk)
 

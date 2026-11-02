@@ -356,7 +356,14 @@ trong khi 500 frame lấy ngẫu nhiên **không có frame nào std ≤ 10**. C�
 rất hiếm trong index (~0,1%) nhưng gần như luôn thắng xếp hạng, nên kết quả UI nhìn
 như "hỏng". Score cosine thô của SigLIP-2 cũng thấp (0,04–0,09 ở top-1), đây là bản
 chất hàm mất mát sigmoid chứ không phải lỗi chuẩn hoá.
-Cần lọc frame trơn ở bước search (hoặc lúc build index) trước khi đánh giá recall.
+
+**Đã sửa ở tầng search (không phải lỗi web UI):** `SearchEngine` lấy dư
+`max(k*4, k+128)` ứng viên từ FAISS rồi loại frame rỗng trước khi trả `k` kết quả.
+Một frame bị loại khi `gray std ≤ 10`, `edge energy ≤ 1.5`, hoặc một màu lượng tử
+chiếm ≥ 92% ảnh. Ngưỡng chỉnh qua `KIS_SEARCH_BLANK_STD`, `KIS_SEARCH_BLANK_EDGE`,
+`KIS_SEARCH_BLANK_DOMINANT`; `/api/search` trả thêm `blank_filtered`. Đo lại trên
+3 query Anh/Việt: **0/50 frame blank trong top-50** (trước đó 49–50/50). Trên 2.000
+frame lấy ngẫu nhiên, chỉ ~0,1–0,2% rơi vào các ngưỡng này.
 
 > Chất lượng vẫn chưa kết luận được. Cần `eval/queries.jsonl` + recall@20 ở bước sau;
 > các kênh OCR/ASR/RRF dự kiến sẽ bù điểm yếu visual.
@@ -409,7 +416,8 @@ Cần lọc frame trơn ở bước search (hoặc lúc build index) trước kh
 4. ✅ Chạy ablation V0–V3 — đã có `kis eval ablation`.
 5. ✅ Code embed / FAISS / search CLI / web UI — đã chạy được với partial index.
 6. ✅ Embed đủ 363 video trên Kaggle GPU + `kis index build` (strict) — 223.199 vector.
-7. Lọc blank/smooth frame khỏi xếp hạng (§8.4): hiện 59% top-100 là frame std = 0.
+7. ✅ Lọc blank/smooth frame khỏi xếp hạng (§8.4): search giờ lấy dư ứng viên và
+   loại frame `std ≤ 10`, `edge ≤ 1.5`, hoặc `màu trội ≥ 92%`; top-50 đã sạch frame trơn.
 8. Tạo `eval/queries.jsonl` + recall@20/MRR để kết luận chất lượng visual và tune
    template/translation bằng số đo.
 9. OCR (RapidOCR) + ASR (faster-whisper) + FTS5, weighted RRF, temporal aggregation.

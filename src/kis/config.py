@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     translate_query: bool = False
     translate_model: str = "Helsinki-NLP/opus-mt-vi-en"
     search_topk: int = 20
+    # Nearly uniform frames (black at t=0, white flashes, solid-color wipes,
+    # smooth gradients) are hubs in SigLIP-2 space and outrank real content
+    # for every query. A frame is dropped from ranking when its grayscale std
+    # is at or below blank_std, its edge energy is at or below blank_edge, or
+    # one quantized color covers >= blank_dominant of it.
+    search_blank_std: float = 10.0
+    search_blank_dominant: float = 0.92
+    search_blank_edge: float = 1.5
     web_host: str = "127.0.0.1"
     web_port: int = 8000
 

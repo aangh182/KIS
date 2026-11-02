@@ -330,6 +330,7 @@ async function search(event) {
     render();
     setStatus(
       `${data.results.length} kết quả · dịch ${data.translate_ms} ms · encode ${data.encode_ms} ms · faiss ${data.search_ms} ms · tổng ${data.latency_ms} ms` +
+      (data.blank_filtered ? ` · lọc ${data.blank_filtered} frame trơn` : "") +
       (data.translated_query ? ` · dịch: “${data.translated_query}”` : "")
     );
   } catch (e) {
